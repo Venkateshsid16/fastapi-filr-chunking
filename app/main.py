@@ -77,3 +77,25 @@ async def check_file_status(filename: str, token: str = Depends(oauth2_scheme)):
         return {"filename": filename, "status": "partially_received", "next_byte": file_size}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Cleanup incomplete uploads after 1 hour."""
+    async def cleanup_incomplete_uploads():
+        while True:
+            for filename in os.listdir(UPLOAD_DIR):
+                file_path = os.path.join(UPLOAD_DIR, filename)
+                if os.path.getmtime(file_path) < datetime.utcnow().timestamp() - 3600:
+                    os.rename(file_path, file_path + ".incomplete")
+            await asyncio.sleep(3600)
+
+    cleanup_task = asyncio.create_task(cleanup_incomplete_uploads())
+    yield
+    cleanup_task.cancel()
+    await cleanup_task
+
+app.router.lifespan_context = lifespan
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
